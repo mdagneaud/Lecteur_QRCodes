@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lecteur QR code</title>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+  <style>
+    :root {
+      --blue-dark:  #236e96;
+      --blue-light: #15b2d3;
+      --yellow:     #ffd700;
+      --orange:     #f3872f;
+      --pink:       #ff598f;
+      --text:       #1a1a2e;
+      --muted:      #6c757d;
+      --bg:         #f0f6fa;
+    }
+
+    * { font-family: 'Roboto', sans-serif; }
+    body { background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    .accent-bar {
+      height: 4px;
+      background: linear-gradient(90deg, var(--blue-dark), var(--blue-light), var(--yellow), var(--orange), var(--pink));
+    }
+
+    .app-header {
+      background: var(--blue-dark);
+      padding: 14px 24px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .app-icon {
+      width: 38px; height: 38px; background: var(--blue-light);
+      border-radius: 8px; display: flex; align-items: center; justify-content: center;
+    }
+    .app-icon svg { fill: white; width: 22px; height: 22px; }
+    .app-title { font-size: 17px; font-weight: 500; color: white; margin: 0; line-height: 1.2; }
+    .app-title small { display: block; font-size: 11px; font-weight: 300; opacity: .7; text-transform: uppercase; letter-spacing: .05em; }
+
+    .nav-tabs { border-bottom: 2px solid #d0e4ef; }
+    .nav-tabs .nav-link { font-size: 14px; font-weight: 500; color: var(--muted); border: none; border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 10px 20px; border-radius: 0; background: none; }
+    .nav-tabs .nav-link:hover { color: var(--blue-dark); }
+    .nav-tabs .nav-link.active { color: var(--blue-dark); border-bottom-color: var(--blue-dark); }
+
+    .card { border: 1px solid #cfe0ec; border-radius: 8px; box-shadow: 0 1px 4px rgba(35,110,150,.07); }
+
+    .camera-box {
+      background: #0a1826; border-radius: 8px 8px 0 0;
+      position: relative; overflow: hidden;
+      aspect-ratio: 4/3; display: flex; align-items: center; justify-content: center;
+    }
+    #video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #canvas { display: none; }
+
+    .scan-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .scan-frame { width: 190px; height: 190px; position: relative; }
+    .scan-frame::before, .scan-frame::after, .scan-frame .c-br, .scan-frame .c-bl {
+      content: ''; position: absolute; width: 26px; height: 26px;
+      border-color: var(--yellow); border-style: solid;
+    }
+    .scan-frame::before { top:0; left:0;    border-width: 3px 0 0 3px; }
+    .scan-frame::after  { top:0; right:0;   border-width: 3px 3px 0 0; }
+    .scan-frame .c-br   { bottom:0; right:0; border-width: 0 3px 3px 0; }
+    .scan-frame .c-bl   { bottom:0; left:0;  border-width: 0 0 3px 3px; }
+    .scan-line {
+      position: absolute; left: 0; right: 0; height: 2px;
+      background: var(--pink); box-shadow: 0 0 8px var(--pink);
+      animation: scan 2s ease-in-out infinite; top: 0;
+    }
+    @keyframes scan { 0%,100% { top:0; } 50% { top:100%; } }
+    .scan-frame.found::before, .scan-frame.found::after,
+    .scan-frame.found .c-br, .scan-frame.found .c-bl { border-color: var(--blue-light); }
+    .scan-frame.found .scan-line { display: none; }
+
+    .cam-placeholder {
+      position: absolute; display: flex; flex-direction: column;
+      align-items: center; gap: 8px; color: rgba(255,255,255,.35); font-size: 13px;
+    }
+
+    .btn-main {
+      background: var(--blue-dark); color: white; border: none; border-radius: 6px;
+      padding: 8px 20px; font-size: 14px; font-weight: 500; min-height: 44px;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-main:hover { background: #1a5577; }
+    .btn-outline {
+      background: none; color: var(--blue-dark); border: 1px solid var(--blue-dark);
+      border-radius: 6px; padding: 8px 20px; font-size: 14px; font-weight: 500;
+      min-height: 44px; cursor: pointer; transition: background .15s, color .15s;
+    }
+    .btn-outline:hover { background: var(--blue-dark); color: white; }
+
+    .drop-zone {
+      border: 2px dashed #b8d5e8; border-radius: 8px;
+      padding: 48px 24px; text-align: center; cursor: pointer;
+      background: white; transition: border-color .15s, background .15s;
+    }
+    .drop-zone:hover, .drop-zone.drag-over { border-color: var(--blue-light); background: #e8f6fb; }
+    .drop-zone p { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+    #file-input { display: none; }
+
+    #image-preview-container { display: none; margin-top: 12px; border-radius: 8px; overflow: hidden; border: 1px solid #cfe0ec; }
+    #image-preview { max-width: 100%; max-height: 300px; display: block; margin: 0 auto; }
+
+    .result-card { border-radius: 8px; overflow: hidden; border: 1px solid #cfe0ec; display: none; }
+    .result-card.visible { display: block; }
+    .result-header { padding: 8px 16px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; display: flex; align-items: center; gap: 8px; }
+    .result-header.success { background: #ddf3f8; color: var(--blue-dark); }
+    .result-header.error   { background: #fdecea; color: #b03a2e; }
+    .result-body { background: white; padding: 14px 16px; }
+    .result-text { font-size: 15px; word-break: break-all; line-height: 1.6; margin: 0; }
+    .result-footer { background: white; padding: 8px 16px; border-top: 1px solid #f0f0f0; display: flex; gap: 12px; }
+    .btn-text { background: none; border: none; color: var(--blue-light); font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; padding: 4px 0; }
+    .btn-text:hover { color: var(--blue-dark); }
+
+    .history-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 8px; }
+    .history-item { background: white; border: 1px solid #cfe0ec; border-radius: 6px; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .history-item + .history-item { margin-top: 6px; }
+    .history-text { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .history-time { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  </style>
+</head>
+<body>
+
+<div class="accent-bar"></div>
+
+<header class="app-header">
+  <div class="app-icon">
+    <svg viewBox="0 0 24 24"><path d="M3 11H11V3H3V11ZM5 5H9V9H5V5ZM13 3V11H21V3H13ZM19 9H15V5H19V9ZM3 21H11V13H3V21ZM5 15H9V19H5V15ZM18 13H16V15H18V13ZM16 17H14V19H16V17ZM18 17H20V15H18V17ZM20 19H18V21H20V19ZM16 19H14V21H16V21ZM20 13H18V15H20V13Z"/></svg>
+  </div>
+  <h1 class="app-title">Lecteur QR code <small>Caméra ou import d'image</small></h1>
+</header>
+
+<div class="container-md py-4" style="max-width:680px">
+
+  <ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#panel-camera" type="button" role="tab">Caméra</button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" data-bs-toggle="tab" data-bs-target="#panel-file" type="button" role="tab" onclick="stopCamera()">Image</button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+
+    <div class="tab-pane fade show active" id="panel-camera" role="tabpanel">
+      <div class="card mb-4">
+        <div class="camera-box">
+          <video id="video" playsinline autoplay muted></video>
+          <canvas id="canvas"></canvas>
+          <div class="scan-overlay">
+            <div class="scan-frame" id="scan-frame">
+              <div class="c-br"></div><div class="c-bl"></div>
+              <div class="scan-line"></div>
+            </div>
+          </div>
+          <div class="cam-placeholder" id="cam-placeholder">
+            <svg width="48" height="48" fill="rgba(255,255,255,.3)" viewBox="0 0 24 24"><path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm7-9h-1.17l-1.24-1.35A2 2 0 0 0 15.12 3H8.88c-.56 0-1.1.24-1.47.65L6.17 5H5c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 13H5V7h2.05l1.56-1.71A.5.5 0 0 1 8.97 5h6.06c.14 0 .28.06.36.16L16.95 7H19v11z"/></svg>
+            Caméra inactive
+          </div>
+        </div>
+        <div class="card-footer bg-white d-flex gap-2">
+          <button class="btn-main" id="btn-start" onclick="startCamera()">Démarrer la caméra</button>
+          <button class="btn-outline" id="btn-stop" style="display:none" onclick="stopCamera()">Arrêter</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-pane fade" id="panel-file" role="tabpanel">
+      <div class="mb-4">
+        <div class="drop-zone" id="drop-zone"
+          onclick="document.getElementById('file-input').click()"
+          ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+          <svg width="40" height="40" fill="#15b2d3" viewBox="0 0 24 24"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z"/></svg>
+          <p><strong>Cliquez pour choisir une image</strong> ou déposez-la ici</p>
+          <p>PNG, JPG, WebP acceptés</p>
+          <input type="file" id="file-input" accept="image/*" onchange="handleFile(event)">
+        </div>
+        <div id="image-preview-container">
+          <img id="image-preview" alt="Aperçu de l'image chargée">
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="result-card mb-4" id="result-card">
+    <div class="result-header" id="result-header">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" id="result-icon"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      <span id="result-label">QR code détecté</span>
+    </div>
+    <div class="result-body">
+      <p class="result-text" id="result-text"></p>
+    </div>
+    <div class="result-footer">
+      <button class="btn-text" onclick="copyResult()" id="btn-copy">Copier</button>
+      <button class="btn-text" onclick="openResult()" id="btn-open" style="display:none">Ouvrir le lien</button>
+    </div>
+  </div>
+
+  <div id="history-section" style="display:none">
+    <p class="history-label">Historique de la session</p>
+    <div id="history-list"></div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+<script>
+  let stream = null, scanning = false, hist = [];
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const v = document.getElementById('video');
+      v.srcObject = stream;
+      document.getElementById('cam-placeholder').style.display = 'none';
+      document.getElementById('btn-start').style.display = 'none';
+      document.getElementById('btn-stop').style.display = '';
+      scanning = true;
+      requestAnimationFrame(tick);
+    } catch {
+      showResult('Impossible d\'accéder à la caméra. Vérifiez les autorisations du navigateur.', false);
+    }
+  }
+
+  function stopCamera() {
+    scanning = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    document.getElementById('video').srcObject = null;
+    document.getElementById('cam-placeholder').style.display = 'flex';
+    document.getElementById('btn-start').style.display = '';
+    document.getElementById('btn-stop').style.display = 'none';
+    document.getElementById('scan-frame').classList.remove('found');
+  }
+
+  function tick() {
+    if (!scanning) return;
+    const v = document.getElementById('video'), c = document.getElementById('canvas');
+    if (v.readyState === v.HAVE_ENOUGH_DATA) {
+      c.width = v.videoWidth; c.height = v.videoHeight;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(v, 0, 0);
+      const d = ctx.getImageData(0, 0, c.width, c.height);
+      const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'dontInvert' });
+      if (code) {
+        document.getElementById('scan-frame').classList.add('found');
+        showResult(code.data, true);
+        addHist(code.data);
+        setTimeout(() => document.getElementById('scan-frame').classList.remove('found'), 2000);
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function handleFile(e) { if (e.target.files[0]) processImg(e.target.files[0]); }
+  function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+  function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+  function onDrop(e) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) processImg(f);
+  }
+
+  function processImg(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const prev = document.getElementById('image-preview');
+      prev.src = e.target.result;
+      document.getElementById('image-preview-container').style.display = 'block';
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height);
+        const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
+        if (code) { showResult(code.data, true); addHist(code.data); }
+        else showResult('Aucun QR code détecté dans cette image.', false);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function showResult(text, ok) {
+    const card = document.getElementById('result-card');
+    const hdr = document.getElementById('result-header');
+    const icon = document.getElementById('result-icon');
+    card.classList.add('visible');
+    hdr.className = 'result-header ' + (ok ? 'success' : 'error');
+    icon.innerHTML = ok
+      ? '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>'
+      : '<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>';
+    document.getElementById('result-label').textContent = ok ? 'QR code détecté' : 'Aucun résultat';
+    document.getElementById('result-text').textContent = text;
+    document.getElementById('btn-open').style.display = (ok && /^https?:\/\//i.test(text)) ? '' : 'none';
+  }
+
+  function copyResult() {
+    navigator.clipboard.writeText(document.getElementById('result-text').textContent).then(() => {
+      const b = document.getElementById('btn-copy');
+      b.textContent = 'Copié !';
+      setTimeout(() => b.textContent = 'Copier', 2000);
+    });
+  }
+
+  function openResult() { window.open(document.getElementById('result-text').textContent, '_blank', 'noopener'); }
+
+  function addHist(text) {
+    const t = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    hist.unshift({ text, t });
+    if (hist.length > 10) hist.pop();
+    document.getElementById('history-section').style.display = 'block';
+    document.getElementById('history-list').innerHTML = hist.map(h =>
+      `<div class="history-item"><span class="history-text">${esc(h.text)}</span><span class="history-time">${h.t}</span></div>`
+    ).join('');
+  }
+
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+</script>
+</body>
+</html>

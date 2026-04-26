@@ -220,16 +220,27 @@
 
   async function startCamera() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      const constraints = {
+        video: {
+          facingMode: { ideal: 'environment' },
+          width:  { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
       const v = document.getElementById('video');
       v.srcObject = stream;
+      v.addEventListener('loadedmetadata', () => {
+        v.play();
+        scanning = true;
+        lastScan = 0;
+        requestAnimationFrame(tick);
+      }, { once: true });
       document.getElementById('cam-placeholder').style.display = 'none';
       document.getElementById('btn-start').style.display = 'none';
       document.getElementById('btn-stop').style.display = '';
-      scanning = true;
-      requestAnimationFrame(tick);
-    } catch {
-      showResult('Impossible d\'accéder à la caméra. Vérifiez les autorisations du navigateur.', false);
+    } catch (err) {
+      showResult('Erreur caméra : ' + err.message, false);
     }
   }
 
@@ -243,91 +254,39 @@
     document.getElementById('scan-frame').classList.remove('found');
   }
 
-  function tick() {
+  let lastScan = 0;
+
+  function tick(ts) {
     if (!scanning) return;
-    const v = document.getElementById('video'), c = document.getElementById('canvas');
-    if (v.readyState === v.HAVE_ENOUGH_DATA) {
-      c.width = v.videoWidth; c.height = v.videoHeight;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(v, 0, 0);
-      const d = ctx.getImageData(0, 0, c.width, c.height);
-      const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'dontInvert' });
-      if (code) {
-        document.getElementById('scan-frame').classList.add('found');
-        showResult(code.data, true);
-        addHist(code.data);
-        setTimeout(() => document.getElementById('scan-frame').classList.remove('found'), 2000);
+    // Limiter à ~15 analyses/seconde pour économiser la batterie
+    if (ts - lastScan > 66) {
+      lastScan = ts;
+      const v = document.getElementById('video'), c = document.getElementById('canvas');
+      if (v.readyState === v.HAVE_ENOUGH_DATA && v.videoWidth > 0) {
+        c.width = v.videoWidth;
+        c.height = v.videoHeight;
+        const ctx = c.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(v, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height);
+        const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
+        if (code && code.data) {
+          document.getElementById('scan-frame').classList.add('found');
+          showResult(code.data, true);
+          addHist(code.data);
+          // Pause de 2s puis reprise du scan
+          scanning = false;
+          setTimeout(() => {
+            document.getElementById('scan-frame').classList.remove('found');
+            if (stream) { scanning = true; requestAnimationFrame(tick); }
+          }, 2000);
+          return;
+        }
       }
     }
     requestAnimationFrame(tick);
   }
 
-  function handleFile(e) { if (e.target.files[0]) processImg(e.target.files[0]); }
-  function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
-  function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
-  function onDrop(e) {
-    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
-    const f = e.dataTransfer.files[0];
-    if (f && f.type.startsWith('image/')) processImg(f);
-  }
-
-  function processImg(file) {
-    const reader = new FileReader();
-    reader.onload = e => {
-      const prev = document.getElementById('image-preview');
-      prev.src = e.target.result;
-      document.getElementById('image-preview-container').style.display = 'block';
-      const img = new Image();
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = img.width; c.height = img.height;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0);
-        const d = ctx.getImageData(0, 0, c.width, c.height);
-        const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
-        if (code) { showResult(code.data, true); addHist(code.data); }
-        else showResult('Aucun QR code détecté dans cette image.', false);
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function showResult(text, ok) {
-    const card = document.getElementById('result-card');
-    const hdr = document.getElementById('result-header');
-    const icon = document.getElementById('result-icon');
-    card.classList.add('visible');
-    hdr.className = 'result-header ' + (ok ? 'success' : 'error');
-    icon.innerHTML = ok
-      ? '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>'
-      : '<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>';
-    document.getElementById('result-label').textContent = ok ? 'QR code détecté' : 'Aucun résultat';
-    document.getElementById('result-text').textContent = text;
-    document.getElementById('btn-open').style.display = (ok && /^https?:\/\//i.test(text)) ? '' : 'none';
-  }
-
-  function copyResult() {
-    navigator.clipboard.writeText(document.getElementById('result-text').textContent).then(() => {
-      const b = document.getElementById('btn-copy');
-      b.textContent = 'Copié !';
-      setTimeout(() => b.textContent = 'Copier', 2000);
-    });
-  }
-
-  function openResult() { window.open(document.getElementById('result-text').textContent, '_blank', 'noopener'); }
-
-  function addHist(text) {
-    const t = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    hist.unshift({ text, t });
-    if (hist.length > 10) hist.pop();
-    document.getElementById('history-section').style.display = 'block';
-    document.getElementById('history-list').innerHTML = hist.map(h =>
-      `<div class="history-item"><span class="history-text">${esc(h.text)}</span><span class="history-time">${h.t}</span></div>`
-    ).join('');
-  }
-
-  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   // Enregistrement du service worker (PWA)
   if ('serviceWorker' in navigator) {

@@ -10321,35 +10321,35 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 <script>
   let stream = null, scanning = false, hist = [];
 
+  let codeReader = null;
+
   async function startCamera() {
     try {
-      const constraints = {
-        video: {
-          facingMode: { ideal: 'environment' },
-          width:  { ideal: 1280 },
-          height: { ideal: 720 }
-        }
-      };
-      stream = await navigator.mediaDevices.getUserMedia(constraints);
-      const v = document.getElementById('video');
-      v.srcObject = stream;
-      v.addEventListener('loadedmetadata', () => {
-        v.play();
-        scanning = true;
-        lastScan = 0;
-        requestAnimationFrame(tick);
-      }, { once: true });
+      codeReader = new ZXing.BrowserMultiFormatReader();
+      const videoEl = document.getElementById('video');
       document.getElementById('cam-placeholder').style.display = 'none';
       document.getElementById('btn-start').style.display = 'none';
       document.getElementById('btn-stop').style.display = '';
+
+      await codeReader.decodeFromConstraints(
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+        videoEl,
+        (result, err) => {
+          if (result) {
+            document.getElementById('scan-frame').classList.add('found');
+            showResult(result.getText(), true);
+            addHist(result.getText());
+            setTimeout(() => document.getElementById('scan-frame').classList.remove('found'), 2000);
+          }
+        }
+      );
     } catch (err) {
-      showResult('Erreur caméra : ' + err.message, false);
+      showResult('Erreur caméra : ' + err.message, false);
     }
   }
 
   function stopCamera() {
-    scanning = false;
-    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    if (codeReader) { codeReader.reset(); codeReader = null; }
     document.getElementById('video').srcObject = null;
     document.getElementById('cam-placeholder').style.display = 'flex';
     document.getElementById('btn-start').style.display = '';
@@ -10357,46 +10357,10 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     document.getElementById('scan-frame').classList.remove('found');
   }
 
-  let lastScan = 0;
+  // tick et lastScan ne sont plus nécessaires avec ZXing
+  function tick() {}
 
-  function tick(ts) {
-    if (!scanning) return;
-    if (ts - lastScan > 200) {
-      lastScan = ts;
-      const v = document.getElementById('video'), c = document.getElementById('canvas');
-
-
-      if (v.videoWidth > 0 && v.videoHeight > 0) {
-        c.width = v.videoWidth;
-        c.height = v.videoHeight;
-        const ctx = c.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(v, 0, 0);
-        try {
-          const d = ctx.getImageData(0, 0, c.width, c.height);
-
-          const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
-          if (code && code.data) {
-            document.getElementById('scan-frame').classList.add('found');
-            showResult(code.data, true);
-            addHist(code.data);
-            scanning = false;
-            setTimeout(() => {
-              document.getElementById('scan-frame').classList.remove('found');
-              if (stream) { scanning = true; requestAnimationFrame(tick); }
-            }, 2000);
-            return;
-          }
-        } catch(e) {
-          console.error('Scan error:', e);
-        }
-      }
-    }
-    requestAnimationFrame(tick);
-  }
-
-  
-
-  function handleFile(e) { if (e.target.files[0]) processImg(e.target.files[0]); }
+    function handleFile(e) { if (e.target.files[0]) processImg(e.target.files[0]); }
   function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
   function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
   function onDrop(e) {
@@ -10417,17 +10381,28 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
         c.width = img.width; c.height = img.height;
         const ctx = c.getContext('2d');
         ctx.drawImage(img, 0, 0);
-        const d = ctx.getImageData(0, 0, c.width, c.height);
-        const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
-        if (code) { showResult(code.data, true); addHist(code.data); }
-        else showResult('Aucun QR code détecté dans cette image.', false);
+        const imageData = ctx.getImageData(0, 0, c.width, c.height);
+        const luminanceSource = new ZXing.RGBLuminanceSource(imageData.data, c.width, c.height);
+        const binarizer = new ZXing.HybridBinarizer(luminanceSource);
+        const bitmap = new ZXing.BinaryBitmap(binarizer);
+        try {
+          const codeReaderStill = new ZXing.MultiFormatReader();
+          const hints = new Map();
+          hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+          codeReaderStill.setHints(hints);
+          const result = codeReaderStill.decode(bitmap);
+          showResult(result.getText(), true);
+          addHist(result.getText());
+        } catch(e) {
+          showResult('Aucun QR code détecté dans cette image.', false);
+        }
       };
       img.src = e.target.result;
     };
     reader.readAsDataURL(file);
   }
 
-  function showResult(text, ok) {
+    function showResult(text, ok) {
     const card = document.getElementById('result-card');
     const hdr = document.getElementById('result-header');
     const icon = document.getElementById('result-icon');
@@ -10476,7 +10451,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 </script>
 
 <footer style="text-align:center;padding:16px;font-size:11px;color:#9ca3af;border-top:1px solid #d0e4ef;margin-top:32px;background:white;">
-  Lecteur QR code &mdash; <strong style="color:#236e96">v1.4</strong> &mdash; 2026
+  Lecteur QR code &mdash; <strong style="color:#236e96">v1.5</strong> &mdash; 2026
 </footer>
 </body>
 </html>

@@ -168,6 +168,7 @@
             Caméra inactive
           </div>
         </div>
+        <div id="debug-info" style="background:#1a1a2e;color:#15b2d3;font-family:monospace;font-size:10px;padding:6px 12px;min-height:22px;word-break:break-all;"></div>
         <div class="card-footer bg-white d-flex gap-2">
           <button class="btn-main" id="btn-start" onclick="startCamera()">Démarrer la caméra</button>
           <button class="btn-outline" id="btn-stop" style="display:none" onclick="stopCamera()">Arrêter</button>
@@ -258,28 +259,36 @@
 
   function tick(ts) {
     if (!scanning) return;
-    // Limiter à ~15 analyses/seconde pour économiser la batterie
-    if (ts - lastScan > 66) {
+    if (ts - lastScan > 200) {
       lastScan = ts;
       const v = document.getElementById('video'), c = document.getElementById('canvas');
-      if (v.readyState === v.HAVE_ENOUGH_DATA && v.videoWidth > 0) {
+      const dbg = document.getElementById('debug-info');
+
+      // Affichage debug
+      dbg.textContent = 'readyState=' + v.readyState + ' | ' + v.videoWidth + 'x' + v.videoHeight;
+
+      if (v.videoWidth > 0 && v.videoHeight > 0) {
         c.width = v.videoWidth;
         c.height = v.videoHeight;
         const ctx = c.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(v, 0, 0);
-        const d = ctx.getImageData(0, 0, c.width, c.height);
-        const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
-        if (code && code.data) {
-          document.getElementById('scan-frame').classList.add('found');
-          showResult(code.data, true);
-          addHist(code.data);
-          // Pause de 2s puis reprise du scan
-          scanning = false;
-          setTimeout(() => {
-            document.getElementById('scan-frame').classList.remove('found');
-            if (stream) { scanning = true; requestAnimationFrame(tick); }
-          }, 2000);
-          return;
+        try {
+          const d = ctx.getImageData(0, 0, c.width, c.height);
+          dbg.textContent += ' | pixels=' + d.data.length + ' | scan OK';
+          const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
+          if (code && code.data) {
+            document.getElementById('scan-frame').classList.add('found');
+            showResult(code.data, true);
+            addHist(code.data);
+            scanning = false;
+            setTimeout(() => {
+              document.getElementById('scan-frame').classList.remove('found');
+              if (stream) { scanning = true; requestAnimationFrame(tick); }
+            }, 2000);
+            return;
+          }
+        } catch(e) {
+          dbg.textContent += ' | ERREUR: ' + e.message;
         }
       }
     }
@@ -298,7 +307,7 @@
 </script>
 
 <footer style="text-align:center;padding:16px;font-size:11px;color:#9ca3af;border-top:1px solid #d0e4ef;margin-top:32px;background:white;">
-  Lecteur QR code &mdash; <strong style="color:#236e96">v1.1</strong> &mdash; 2026
+  Lecteur QR code &mdash; <strong style="color:#236e96">v1.2-debug</strong> &mdash; 2026
 </footer>
 </body>
 </html>

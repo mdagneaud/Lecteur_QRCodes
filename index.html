@@ -10394,7 +10394,77 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
     requestAnimationFrame(tick);
   }
 
-    function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  
+
+  function handleFile(e) { if (e.target.files[0]) processImg(e.target.files[0]); }
+  function onDragOver(e) { e.preventDefault(); e.currentTarget.classList.add('drag-over'); }
+  function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+  function onDrop(e) {
+    e.preventDefault(); e.currentTarget.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f && f.type.startsWith('image/')) processImg(f);
+  }
+
+  function processImg(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const prev = document.getElementById('image-preview');
+      prev.src = e.target.result;
+      document.getElementById('image-preview-container').style.display = 'block';
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.width; c.height = img.height;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const d = ctx.getImageData(0, 0, c.width, c.height);
+        const code = jsQR(d.data, d.width, d.height, { inversionAttempts: 'attemptBoth' });
+        if (code) { showResult(code.data, true); addHist(code.data); }
+        else showResult('Aucun QR code détecté dans cette image.', false);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function showResult(text, ok) {
+    const card = document.getElementById('result-card');
+    const hdr = document.getElementById('result-header');
+    const icon = document.getElementById('result-icon');
+    card.classList.add('visible');
+    hdr.className = 'result-header ' + (ok ? 'success' : 'error');
+    icon.innerHTML = ok
+      ? '<path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/>'
+      : '<path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>';
+    document.getElementById('result-label').textContent = ok ? 'QR code détecté' : 'Aucun résultat';
+    document.getElementById('result-text').textContent = text;
+    document.getElementById('btn-open').style.display = (ok && /^https?:\/\//i.test(text)) ? '' : 'none';
+    // Scroll vers le résultat
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function copyResult() {
+    navigator.clipboard.writeText(document.getElementById('result-text').textContent).then(() => {
+      const b = document.getElementById('btn-copy');
+      b.textContent = 'Copié !';
+      setTimeout(() => b.textContent = 'Copier', 2000);
+    });
+  }
+
+  function openResult() { window.open(document.getElementById('result-text').textContent, '_blank', 'noopener'); }
+
+  function addHist(text) {
+    const t = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    if (!window._hist) window._hist = [];
+    window._hist.unshift({ text, t });
+    if (window._hist.length > 10) window._hist.pop();
+    document.getElementById('history-section').style.display = 'block';
+    document.getElementById('history-list').innerHTML = window._hist.map(h =>
+      '<div class="history-item"><span class="history-text">' + esc(h.text) + '</span><span class="history-time">' + h.t + '</span></div>'
+    ).join('');
+  }
+
+  function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
   // Enregistrement du service worker (PWA)
   if ('serviceWorker' in navigator) {
@@ -10406,7 +10476,7 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
 </script>
 
 <footer style="text-align:center;padding:16px;font-size:11px;color:#9ca3af;border-top:1px solid #d0e4ef;margin-top:32px;background:white;">
-  Lecteur QR code &mdash; <strong style="color:#236e96">v1.3</strong> &mdash; 2026
+  Lecteur QR code &mdash; <strong style="color:#236e96">v1.4</strong> &mdash; 2026
 </footer>
 </body>
 </html>
